@@ -998,6 +998,25 @@ class Client::JsonMessage final : public td::Jsonable {
   }
 };
 
+class Client::JsonBotVerification final : public td::Jsonable {
+ public:
+  JsonBotVerification(const td_api::botVerification *bot_verification, const Client *client)
+      : bot_verification_(bot_verification), client_(client) {
+  }
+  void store(td::JsonValueScope *scope) const {
+    auto object = scope->enter_object();
+    object("bot_user_id", bot_verification_->bot_user_id_);
+    object("icon_custom_emoji_id", td::to_string(bot_verification_->icon_custom_emoji_id_));
+    if (bot_verification_->custom_description_ != nullptr) {
+      object("custom_description", bot_verification_->custom_description_->text_);
+    }
+  }
+
+ private:
+  const td_api::botVerification *bot_verification_;
+  const Client *client_;
+};
+
 class Client::JsonChat final : public td::Jsonable {
  public:
   JsonChat(int64 chat_id, const Client *client, bool is_full = false, int64 pinned_message_id = -1)
@@ -1060,6 +1079,9 @@ class Client::JsonChat final : public td::Jsonable {
           }
           if (user_info->personal_chat_id != 0) {
             object("personal_chat", JsonChat(user_info->personal_chat_id, client_));
+          }
+          if (user_info->bot_verification != nullptr) {
+            object("bot_verification", JsonBotVerification(user_info->bot_verification.get(), client_));
           }
         }
         photo = user_info->photo.get();
@@ -1183,6 +1205,9 @@ class Client::JsonChat final : public td::Jsonable {
           }
           if (supergroup_info->has_paid_media_allowed && !supergroup_info->is_supergroup) {
             object("can_send_paid_media", td::JsonTrue());
+          }
+          if (supergroup_info->bot_verification != nullptr) {
+            object("bot_verification", JsonBotVerification(supergroup_info->bot_verification.get(), client_));
           }
           object("accepted_gift_types",
                  JsonAcceptedGiftTypes(supergroup_info->can_send_gift, supergroup_info->can_send_gift,
@@ -8389,6 +8414,8 @@ void Client::on_update(object_ptr<td_api::Object> result) {
       user_info->personal_chat_id = full_info->personal_chat_id_;
       user_info->has_private_forwards = full_info->has_private_forwards_;
       user_info->has_restricted_voice_and_video_messages = full_info->has_restricted_voice_and_video_note_messages_;
+      // Store bot verification object if available
+      user_info->bot_verification = std::move(full_info->bot_verification_);
       break;
     }
     case td_api::updateBasicGroup::ID: {
@@ -8436,6 +8463,7 @@ void Client::on_update(object_ptr<td_api::Object> result) {
       supergroup_info->has_hidden_members = full_info->has_hidden_members_;
       supergroup_info->has_aggressive_anti_spam_enabled = full_info->has_aggressive_anti_spam_enabled_;
       supergroup_info->has_paid_media_allowed = full_info->has_paid_media_allowed_;
+      supergroup_info->bot_verification = std::move(full_info->bot_verification_);
       break;
     }
     case td_api::updateOption::ID: {

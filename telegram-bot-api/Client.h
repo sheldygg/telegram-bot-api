@@ -99,6 +99,7 @@ class Client final : public WebhookActor::Callback {
   class JsonBusinessLocation;
   class JsonBusinessOpeningHoursInterval;
   class JsonBusinessOpeningHours;
+  class JsonBotVerification;
   class JsonChatPermissions;
   class JsonChatPhotoInfo;
   class JsonChatLocation;
@@ -960,6 +961,7 @@ class Client final : public WebhookActor::Callback {
     object_ptr<td_api::birthdate> birthdate;
     object_ptr<td_api::businessInfo> business_info;
     object_ptr<td_api::acceptedGiftTypes> accepted_gift_types;
+    object_ptr<td_api::botVerification> bot_verification;
     int64 personal_chat_id = 0;
 
     bool have_access = false;
@@ -1006,6 +1008,7 @@ class Client final : public WebhookActor::Callback {
     int64 direct_messages_chat_id = 0;
     object_ptr<td_api::chatLocation> location;
     object_ptr<td_api::ChatMemberStatus> status;
+    object_ptr<td_api::botVerification> bot_verification;
     bool is_supergroup = false;
     bool is_forum = false;
     bool is_direct_messages = false;
@@ -1044,6 +1047,7 @@ class Client final : public WebhookActor::Callback {
       int64 group_id;
       int64 supergroup_id;
     };
+    object_ptr<td_api::botVerification> bot_verification;
   };
   ChatInfo *add_chat(int64 chat_id);
   const ChatInfo *get_chat(int64 chat_id) const;
