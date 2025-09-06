@@ -100,6 +100,7 @@ class Client final : public WebhookActor::Callback {
   class JsonBusinessOpeningHoursInterval;
   class JsonBusinessOpeningHours;
   class JsonBotVerification;
+  class JsonUserRating;
   class JsonChatPermissions;
   class JsonChatPhotoInfo;
   class JsonChatLocation;
@@ -687,6 +688,9 @@ class Client final : public WebhookActor::Callback {
   static td::Result<td::vector<int64>> get_message_ids(const Query *query, size_t max_count,
                                                        td::Slice field_name = td::Slice("message_ids"));
 
+  static td::Result<td::vector<int32>> get_album_ids(const Query *query, size_t max_count,
+                                                       td::Slice field_name = td::Slice("album_ids"));
+
   static td::Result<td::Slice> get_inline_message_id(const Query *query,
                                                      td::Slice field_name = td::Slice("inline_message_id"));
 
@@ -962,6 +966,7 @@ class Client final : public WebhookActor::Callback {
     object_ptr<td_api::businessInfo> business_info;
     object_ptr<td_api::acceptedGiftTypes> accepted_gift_types;
     object_ptr<td_api::botVerification> bot_verification;
+    object_ptr<td_api::userRating> user_rating;
     int64 personal_chat_id = 0;
 
     bool have_access = false;

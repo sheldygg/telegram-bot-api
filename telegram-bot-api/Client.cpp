@@ -1017,6 +1017,24 @@ class Client::JsonBotVerification final : public td::Jsonable {
   const Client *client_;
 };
 
+class Client::JsonUserRating final : public td::Jsonable {
+ public:
+  JsonUserRating(const td_api::userRating *user_rating, const Client *client)
+      : user_rating_(user_rating), client_(client) {
+  }
+  void store(td::JsonValueScope *scope) const {
+    auto object = scope->enter_object();
+    object("level", user_rating_->level_);
+    object("rating", user_rating_->rating_);
+    object("current_level_rating", user_rating_->current_level_rating_);
+    object("next_level_rating", user_rating_->next_level_rating_);
+  }
+
+ private:
+  const td_api::userRating *user_rating_;
+  const Client *client_;
+};
+
 class Client::JsonChat final : public td::Jsonable {
  public:
   JsonChat(int64 chat_id, const Client *client, bool is_full = false, int64 pinned_message_id = -1)
@@ -1082,6 +1100,9 @@ class Client::JsonChat final : public td::Jsonable {
           }
           if (user_info->bot_verification != nullptr) {
             object("bot_verification", JsonBotVerification(user_info->bot_verification.get(), client_));
+          }
+          if (user_info->user_rating != nullptr) {
+            object("user_rating", JsonUserRating(user_info->user_rating.get(), client_));
           }
         }
         photo = user_info->photo.get();
@@ -1310,9 +1331,9 @@ class Client::JsonGift final : public td::Jsonable {
     if (gift_->upgrade_star_count_ > 0) {
       object("upgrade_star_count", gift_->upgrade_star_count_);
     }
-    if (gift_->total_count_ > 0) {
-      object("remaining_count", gift_->remaining_count_);
-      object("total_count", gift_->total_count_);
+    if (gift_->overall_limits_->remaining_count_ > 0) {
+      object("remaining_count", gift_->overall_limits_->remaining_count_);
+      object("total_count", gift_->overall_limits_->total_count_);
     }
     if (gift_->publisher_chat_id_ != 0) {
       object("publisher_chat", JsonChat(gift_->publisher_chat_id_, client_));
@@ -2747,7 +2768,6 @@ class Client::JsonUniqueGiftMessage final : public td::Jsonable {
       case td_api::upgradedGiftOriginResale::ID: {
         auto origin = static_cast<const td_api::upgradedGiftOriginResale *>(gift_->origin_.get());
         object("origin", "resale");
-        object("last_resale_star_count", origin->star_count_);
         break;
       }
       default:
@@ -7076,7 +7096,7 @@ class Client::TdOnGetGiftsCallback final : public TdQueryCallback {
     CHECK(result->get_id() == td_api::availableGifts::ID);
     auto available_gifts = move_object_as<td_api::availableGifts>(result);
     auto gifts = td::transform(std::move(available_gifts->gifts_), [](auto &&gift) { return std::move(gift->gift_); });
-    td::remove_if(gifts, [](const auto &gift) { return gift->total_count_ > 0 && gift->remaining_count_ == 0; });
+    td::remove_if(gifts, [](const auto &gift) { return gift->overall_limits_->total_count_ > 0 && gift->overall_limits_->remaining_count_ == 0; });
     answer_query(JsonGifts(gifts, client_), std::move(query_));
   }
 
@@ -7697,7 +7717,7 @@ void Client::check_business_connection(const td::string &business_connection_id,
                                        OnSuccess on_success) {
   auto business_connection = get_business_connection(business_connection_id);
   if (business_connection != nullptr) {
-    return on_success(business_connection, std::move(query));
+    on_success(business_connection, std::move(query));
   }
   send_request(
       make_object<td_api::getBusinessConnection>(business_connection_id),
@@ -8414,8 +8434,8 @@ void Client::on_update(object_ptr<td_api::Object> result) {
       user_info->personal_chat_id = full_info->personal_chat_id_;
       user_info->has_private_forwards = full_info->has_private_forwards_;
       user_info->has_restricted_voice_and_video_messages = full_info->has_restricted_voice_and_video_note_messages_;
-      // Store bot verification object if available
       user_info->bot_verification = std::move(full_info->bot_verification_);
+      user_info->user_rating = std::move(full_info->rating_);
       break;
     }
     case td_api::updateBasicGroup::ID: {
@@ -11622,6 +11642,46 @@ td::Result<td::vector<td::int64>> Client::get_message_ids(const Query *query, si
   return std::move(message_ids);
 }
 
+td::Result<td::vector<td::int32>> Client::get_album_ids(const Query *query, size_t max_count, td::Slice field_name) {
+  auto album_ids_str = query->arg(field_name);
+  if (album_ids_str.empty()) {
+    return td::Status::Error(400, "Message identifiers are not specified");
+  }
+
+  auto r_value = json_decode(album_ids_str);
+  if (r_value.is_error()) {
+    return td::Status::Error(400, PSLICE() << "Can't parse " << field_name << " JSON object");
+  }
+  auto value = r_value.move_as_ok();
+  if (value.type() != td::JsonValue::Type::Array) {
+    return td::Status::Error(400, "Expected an Array of album identifiers");
+  }
+  if (value.get_array().size() > max_count) {
+    return td::Status::Error(400, "Too many album identifiers specified");
+  }
+
+  td::vector<int32> album_ids;
+  for (auto &message_id : value.get_array()) {
+    td::Slice number;
+    if (message_id.type() == td::JsonValue::Type::Number) {
+      number = message_id.get_number();
+    } else if (message_id.type() == td::JsonValue::Type::String) {
+      number = message_id.get_string();
+    } else {
+      return td::Status::Error(400, "Album identifier must be a Number");
+    }
+    auto parsed_message_id = td::to_integer_safe<int32>(number);
+    if (parsed_message_id.is_error()) {
+      return td::Status::Error(400, "Can't parse album identifier as Number");
+    }
+    if (parsed_message_id.ok() <= 0) {
+      return td::Status::Error(400, "Invalid album identifier specified");
+    }
+    album_ids.push_back(parsed_message_id.ok());
+  }
+  return std::move(album_ids);
+}
+
 td::Result<td::Slice> Client::get_inline_message_id(const Query *query, td::Slice field_name) {
   auto s_arg = query->arg(field_name);
   if (s_arg.empty()) {
@@ -12846,10 +12906,11 @@ td::Status Client::process_post_story_query(PromisedQueryPtr &query) {
         auto active_period = get_integer_arg(query.get(), "active_period", 0, 0, 1000000000);
         auto is_posted_to_chat_page = to_bool(query->arg("post_to_chat_page"));
         auto protect_content = to_bool(query->arg("protect_content"));
+        TRY_RESULT(album_ids, get_album_ids(query.get(), 100));
         send_request(
             make_object<td_api::postStory>(business_connection->user_chat_id_, std::move(content), std::move(areas),
                                            std::move(caption), make_object<td_api::storyPrivacySettingsEveryone>(),
-                                           active_period, nullptr, is_posted_to_chat_page, protect_content),
+                                           std::move(album_ids), active_period, nullptr, is_posted_to_chat_page, protect_content),
             td::make_unique<TdOnPostStoryCallback>(this, std::move(query)));
       });
   return td::Status::OK();
@@ -13440,9 +13501,10 @@ td::Status Client::process_get_business_account_gifts_query(PromisedQueryPtr &qu
                               auto sort_by_price = to_bool(query->arg("sort_by_price"));
                               auto offset = query->arg("offset");
                               auto limit = get_integer_arg(query.get(), "limit", 100, 1, 100);
+                              auto collection_id = get_integer_arg(query.get(), "collection_id", 0, 0, INT32_MAX);
                               send_request(make_object<td_api::getReceivedGifts>(
                                                business_connection->id_, make_object<td_api::messageSenderUser>(my_id_),
-                                               exclude_unsaved, exclude_saved, exclude_unlimited, exclude_limited,
+                                               collection_id, exclude_unsaved, exclude_saved, exclude_unlimited, exclude_limited,
                                                exclude_upgraded, sort_by_price, offset.str(), limit),
                                            td::make_unique<TdOnGetReceivedGiftsCallback>(this, std::move(query)));
                             });
